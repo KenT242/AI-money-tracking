@@ -5,6 +5,7 @@
 
 import { ParsedTransaction } from "@/types";
 import { AI_CONFIG, ERROR_MESSAGES, TRANSACTION_CATEGORIES } from "@/lib/constants";
+import { CategoryService } from "@/services/category.service";
 
 const AI_API_BASE_URL = process.env.AI_API_BASE_URL;
 const AI_API_KEY = process.env.AI_API_KEY;
@@ -21,13 +22,17 @@ if (!AI_API_BASE_URL || !AI_API_KEY) {
  * Example: "cơm 10k, 20k nước" -> returns first transaction, stores multiple
  */
 export async function parseTransactionFromText(
-  userInput: string
+  userInput: string,
+  userId?: string
 ): Promise<ParsedTransaction & { multipleTransactions?: ParsedTransaction[] }> {
   if (!AI_API_BASE_URL || !AI_API_KEY) {
     throw new Error(ERROR_MESSAGES.AI.NOT_CONFIGURED);
   }
 
-  const prompt = buildParsingPrompt(userInput);
+  // Get categories from database
+  const categoryNames = await CategoryService.getCategoryNames(userId);
+
+  const prompt = buildParsingPrompt(userInput, categoryNames);
 
   try {
     const response = await fetch(`${AI_API_BASE_URL}/v1/chat/completions`, {
@@ -119,25 +124,24 @@ Important rules:
 /**
  * Build the parsing prompt from user input
  */
-function buildParsingPrompt(userInput: string): string {
+function buildParsingPrompt(
+  userInput: string,
+  categoryNames: { expense: string[]; income: string[] }
+): string {
+  const expenseCategories = categoryNames.expense.join(", ");
+  const incomeCategories = categoryNames.income.join(", ");
+
   return `Parse this transaction input and extract details. The input may contain MULTIPLE transactions separated by commas, dashes, or "and".
 
 "${userInput}"
 
 Available categories:
-- Food & Dining (ăn uống, nhà hàng, quán ăn, bún, phở, cơm, cafe, trà sữa)
-- Shopping (mua sắm, quần áo, điện thoại, đồ dùng)
-- Transportation (xe ôm, grab, taxi, xăng, xe bus)
-- Bills & Utilities (điện, nước, internet, điện thoại, nhà)
-- Entertainment (xem phim, game, vui chơi, karaoke)
-- Healthcare (bệnh viện, thuốc, khám bệnh)
-- Travel (du lịch, khách sạn, vé máy bay)
-- Education (học phí, sách, khóa học)
-- Personal Care (cắt tóc, spa, mỹ phẩm)
-- Salary (lương, thu nhập)
-- Freelance (làm thêm, dự án)
-- Investment (đầu tư, lãi suất)
-- Other (khác)
+
+EXPENSE categories: ${expenseCategories}
+
+INCOME categories: ${incomeCategories}
+
+Choose the most appropriate category from the list above based on the transaction description
 
 IMPORTANT: If the input contains multiple transactions, return them as an array. Otherwise, return a single object.
 

@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     const userId = session.userId;
 
     // Parse transaction from natural language
-    const parsed = await parseTransactionFromText(message);
+    const parsed = await parseTransactionFromText(message, userId);
 
     // Validate amount
     if (!parsed.amount || parsed.amount <= 0) {

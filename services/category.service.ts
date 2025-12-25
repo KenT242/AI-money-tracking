@@ -32,6 +32,37 @@ export class CategoryService {
   }
 
   /**
+   * Get category names only (for AI prompt)
+   */
+  static async getCategoryNames(userId?: string): Promise<{
+    expense: string[];
+    income: string[];
+  }> {
+    await connectDB();
+
+    const query = userId
+      ? { $or: [{ userId }, { isDefault: true }] }
+      : { isDefault: true };
+
+    const categories = await Category.find(query).lean();
+
+    const expenseCategories = categories
+      .filter((c) => c.type === "expense" || c.type === "both")
+      .map((c) => c.name)
+      .sort();
+
+    const incomeCategories = categories
+      .filter((c) => c.type === "income" || c.type === "both")
+      .map((c) => c.name)
+      .sort();
+
+    return {
+      expense: expenseCategories,
+      income: incomeCategories,
+    };
+  }
+
+  /**
    * Seed default categories
    */
   static async seedDefaultCategories(): Promise<void> {

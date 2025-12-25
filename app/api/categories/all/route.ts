@@ -7,8 +7,8 @@ import { HTTP_STATUS, ERROR_MESSAGES } from "@/lib/constants";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/transactions/categories
- * Get all categories (default + user's custom) from database
+ * GET /api/categories/all
+ * Get all categories with full information (including type)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -24,12 +24,8 @@ export async function GET(request: NextRequest) {
 
     const userId = session.userId;
 
-    // Get categories from database (default + user's custom)
-    const allCategories = await CategoryService.getCategories(userId);
-
-    // Extract just the names for simple list and remove duplicates
-    const categoryNames = allCategories.map(c => c.name);
-    const categories = [...new Set(categoryNames)].sort();
+    // Get categories from database (default + user's custom) with full info
+    const categories = await CategoryService.getCategories(userId);
 
     return NextResponse.json({ categories });
   } catch (error) {
