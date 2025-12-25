@@ -58,6 +58,7 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   transaction?: ITransaction;
+  transactions?: ITransaction[]; // For multiple transactions
 }
 
 export interface ParsedTransaction {

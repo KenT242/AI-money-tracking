@@ -56,6 +56,21 @@ export async function POST(request: NextRequest) {
 
     // Check if there are multiple transactions
     if (parsed.multipleTransactions && parsed.multipleTransactions.length > 1) {
+      // Validate all transactions
+      const invalidTransactions = parsed.multipleTransactions.filter(
+        (t) => !t.amount || t.amount <= 0
+      );
+
+      if (invalidTransactions.length > 0) {
+        return NextResponse.json(
+          {
+            error: "Invalid amount in one or more transactions",
+            message: ERROR_MESSAGES.TRANSACTION.INVALID_AMOUNT,
+          },
+          { status: HTTP_STATUS.BAD_REQUEST }
+        );
+      }
+
       // Create all transactions
       const transactions = await Promise.all(
         parsed.multipleTransactions.map((t) =>

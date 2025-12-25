@@ -36,6 +36,7 @@ export function TransactionChat() {
   const [isLoading, setIsLoading] = useState(false);
   const [allCategories, setAllCategories] = useState<ICategory[]>([]);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingTransactionIndex, setEditingTransactionIndex] = useState<number | null>(null); // For multiple transactions
   const [editAmount, setEditAmount] = useState("");
   const [editCategory, setEditCategory] = useState("");
   const [editType, setEditType] = useState<"income" | "expense">("expense");
@@ -134,6 +135,7 @@ export function TransactionChat() {
         content: data.message,
         timestamp: new Date(),
         transaction: data.transaction,
+        transactions: data.transactions, // For multiple transactions
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -156,13 +158,26 @@ export function TransactionChat() {
     }
   };
 
-  const handleEditClick = (message: ChatMessage) => {
-    if (!message.transaction) return;
+  const handleEditClick = (message: ChatMessage, transactionIndex?: number) => {
+    // For single transaction
+    if (message.transaction && transactionIndex === undefined) {
+      setEditingMessageId(message.id);
+      setEditingTransactionIndex(null);
+      setEditAmount(message.transaction.amount.toString());
+      setEditType(message.transaction.type);
+      setEditCategory(message.transaction.category);
+      return;
+    }
 
-    setEditingMessageId(message.id);
-    setEditAmount(message.transaction.amount.toString());
-    setEditType(message.transaction.type);
-    setEditCategory(message.transaction.category);
+    // For multiple transactions
+    if (message.transactions && transactionIndex !== undefined) {
+      const transaction = message.transactions[transactionIndex];
+      setEditingMessageId(message.id);
+      setEditingTransactionIndex(transactionIndex);
+      setEditAmount(transaction.amount.toString());
+      setEditType(transaction.type);
+      setEditCategory(transaction.category);
+    }
   };
 
   // Reset category when type changes if current category is not valid for new type
@@ -182,13 +197,23 @@ export function TransactionChat() {
 
   const handleCancelEdit = () => {
     setEditingMessageId(null);
+    setEditingTransactionIndex(null);
     setEditAmount("");
     setEditCategory("");
     setEditType("expense");
   };
 
   const handleSaveEdit = async (message: ChatMessage) => {
-    if (!message.transaction?._id) return;
+    // Get the transaction ID to update
+    let transactionId: string | undefined;
+
+    if (editingTransactionIndex !== null && message.transactions) {
+      transactionId = message.transactions[editingTransactionIndex]?._id;
+    } else if (message.transaction) {
+      transactionId = message.transaction._id;
+    }
+
+    if (!transactionId) return;
 
     const amount = parseFloat(editAmount);
     if (isNaN(amount) || amount <= 0) {
@@ -202,7 +227,7 @@ export function TransactionChat() {
     }
 
     try {
-      const response = await fetch(`/api/transactions/${message.transaction._id}`, {
+      const response = await fetch(`/api/transactions/${transactionId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -222,18 +247,35 @@ export function TransactionChat() {
 
       // Update the message with new transaction data
       setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === message.id
-            ? {
-                ...msg,
-                transaction: data.transaction,
-                content: buildUpdatedMessage(data.transaction),
-              }
-            : msg
-        )
+        prev.map((msg) => {
+          if (msg.id !== message.id) return msg;
+
+          // Update single transaction
+          if (editingTransactionIndex === null && msg.transaction) {
+            return {
+              ...msg,
+              transaction: data.transaction,
+              content: buildUpdatedMessage(data.transaction),
+            };
+          }
+
+          // Update transaction in multiple transactions
+          if (editingTransactionIndex !== null && msg.transactions) {
+            const updatedTransactions = [...msg.transactions];
+            updatedTransactions[editingTransactionIndex] = data.transaction;
+            return {
+              ...msg,
+              transactions: updatedTransactions,
+              content: buildMultipleUpdatedMessage(updatedTransactions),
+            };
+          }
+
+          return msg;
+        })
       );
 
       setEditingMessageId(null);
+      setEditingTransactionIndex(null);
       setEditAmount("");
       setEditCategory("");
       setEditType("expense");
@@ -255,6 +297,29 @@ export function TransactionChat() {
 💰 Số tiền: ${amountFormatted}
 📂 Danh mục: ${transaction.category}
 ${transaction.merchant ? `🏪 Nơi: ${transaction.merchant}` : ""}`;
+  };
+
+  const buildMultipleUpdatedMessage = (transactions: any[]): string => {
+    const totalAmount = transactions.reduce((sum, t) => sum + t.amount, 0);
+    const totalFormatted = new Intl.NumberFormat(UI_CONSTANTS.CURRENCY_LOCALE, {
+      style: "currency",
+      currency: UI_CONSTANTS.CURRENCY_CODE,
+    }).format(totalAmount);
+
+    let message = `✓ Đã lưu ${transactions.length} giao dịch:\n\n`;
+
+    transactions.forEach((t, index) => {
+      const amountFormatted = new Intl.NumberFormat(UI_CONSTANTS.CURRENCY_LOCALE, {
+        style: "currency",
+        currency: UI_CONSTANTS.CURRENCY_CODE,
+      }).format(t.amount);
+
+      message += `${index + 1}. ${t.description} - ${amountFormatted} (${t.category})\n`;
+    });
+
+    message += `\n💰 Tổng: ${totalFormatted}`;
+
+    return message;
   };
 
   // Filter categories by selected type
@@ -454,6 +519,133 @@ ${transaction.merchant ? `🏪 Nơi: ${transaction.merchant}` : ""}`;
                           </Button>
                         )}
                       </>
+                    )}
+
+                    {/* Multiple Transactions */}
+                    {message.transactions && message.transactions.length > 0 && (
+                      <div className="mt-2 sm:mt-3 space-y-2">
+                        {message.transactions.map((transaction, transactionIndex) => (
+                          <div key={transaction._id || transactionIndex} className="p-2 sm:p-3 rounded-lg bg-white/5 border border-white/10">
+                            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                              <Badge
+                                variant={transaction.type === "income" ? "default" : "destructive"}
+                                className={`flex items-center gap-1 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full shadow-lg text-[10px] sm:text-xs ${
+                                  transaction.type === "income"
+                                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                                    : "bg-rose-500/20 text-rose-300 border-rose-500/30"
+                                }`}
+                              >
+                                {transaction.type === "income" ? (
+                                  <TrendingUp className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                ) : (
+                                  <TrendingDown className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                )}
+                                {TRANSACTION_TYPE_LABELS_VI[transaction.type]}
+                              </Badge>
+                              <span className="text-xs sm:text-sm">{transaction.description}</span>
+                              <span className="text-xs sm:text-sm font-semibold ml-auto">
+                                {new Intl.NumberFormat(UI_CONSTANTS.CURRENCY_LOCALE, {
+                                  style: "currency",
+                                  currency: UI_CONSTANTS.CURRENCY_CODE,
+                                }).format(transaction.amount)}
+                              </span>
+                            </div>
+
+                            {/* Edit Form for this transaction */}
+                            {editingMessageId === message.id && editingTransactionIndex === transactionIndex ? (
+                              <div className="mt-2 space-y-2 p-2 sm:p-3 rounded-lg bg-white/5 border border-white/20">
+                                {/* Same edit form as single transaction */}
+                                <div>
+                                  <label className="text-[11px] sm:text-xs text-slate-300 block mb-1">Loại</label>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() => setEditType("expense")}
+                                      className={`h-9 text-xs font-medium ${
+                                        editType === "expense"
+                                          ? "bg-rose-500 hover:bg-rose-600 text-white"
+                                          : "bg-white/5 hover:bg-white/10 text-slate-300"
+                                      }`}
+                                    >
+                                      <TrendingDown className="w-3.5 h-3.5 mr-1" />
+                                      Chi
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() => setEditType("income")}
+                                      className={`h-9 text-xs font-medium ${
+                                        editType === "income"
+                                          ? "bg-emerald-500 hover:bg-emerald-600 text-white"
+                                          : "bg-white/5 hover:bg-white/10 text-slate-300"
+                                      }`}
+                                    >
+                                      <TrendingUp className="w-3.5 h-3.5 mr-1" />
+                                      Thu
+                                    </Button>
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="text-[11px] sm:text-xs text-slate-300 block mb-1">Số tiền</label>
+                                  <Input
+                                    type="number"
+                                    inputMode="numeric"
+                                    value={editAmount}
+                                    onChange={(e) => setEditAmount(e.target.value)}
+                                    className="h-9 text-sm bg-slate-900/50 border-white/20"
+                                    placeholder="0"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] sm:text-xs text-slate-300 block mb-1">Danh mục</label>
+                                  <Select key={editType} value={editCategory} onValueChange={setEditCategory}>
+                                    <SelectTrigger className="h-9 text-sm bg-slate-900/50 border-white/20">
+                                      <SelectValue placeholder="Chọn danh mục" />
+                                    </SelectTrigger>
+                                    <SelectContent className="max-h-[60vh]">
+                                      {getFilteredCategories().map((cat) => (
+                                        <SelectItem key={cat._id || cat.name} value={cat.name} className="text-sm py-2">
+                                          {cat.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleSaveEdit(message)}
+                                    className="h-9 text-xs bg-emerald-500 hover:bg-emerald-600"
+                                  >
+                                    <Check className="w-3.5 h-3.5 mr-1" />
+                                    Lưu
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleCancelEdit}
+                                    className="h-9 text-xs border-white/20 hover:bg-white/10"
+                                  >
+                                    <X className="w-3.5 h-3.5 mr-1" />
+                                    Hủy
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleEditClick(message, transactionIndex)}
+                                className="mt-2 h-8 text-xs hover:bg-white/10"
+                              >
+                                <Edit2 className="w-3 h-3 mr-1" />
+                                Sửa
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     )}
 
                     <div className="text-[10px] sm:text-xs opacity-60 mt-1.5 sm:mt-2">
